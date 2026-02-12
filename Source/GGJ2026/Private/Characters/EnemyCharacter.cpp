@@ -1,0 +1,341 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+
+#include "Characters/EnemyCharacter.h"
+#include "Components/CapsuleComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "PaperFlipbookComponent.h"
+#include "AI/EnemyAIController.h"
+#include "AI/EnemyManager.h"
+#include "Characters/GGJCharacter.h"
+#include "Items/MaskPickup.h"
+#include "Components/BoxComponent.h" 
+#include "Game/GGJPlayerState.h"
+#include "Kismet/GameplayStatics.h"
+
+// Sets default values
+AEnemyCharacter::AEnemyCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{	
+	GetCapsuleComponent()->InitCapsuleSize(30.f, 85.0f);
+	GetCapsuleComponent()->SetUseCCD(true);
+	
+	// --- Character Rotation Setup ---
+	// Don't rotate when the controller rotates. Let that just affect the camera.
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+			
+	HealthComp = CreateDefaultSubobject<UHealthComponent>(FName("Health"));
+	
+	// --- Sprite Component Setup ---
+	GetSprite()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetSprite()->SetCastShadow(true);
+
+	// IMPORTANT: Capsule rotates for movement logic, but Sprite must stay fixed (Billboard)
+	// to face the camera. PaperZD handles the visual direction via animation.
+	GetSprite()->SetUsingAbsoluteRotation(true);
+	GetSprite()->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
+	GetSprite()->SetRelativeScale3D(FVector(1.0f, 1.0f, 1.3f));
+
+	HurtboxComponent = CreateDefaultSubobject<UBoxComponent>(TEXT("Hurtbox"));
+		
+	HurtboxComponent->SetupAttachment(GetSprite());
+	HurtboxComponent->SetBoxExtent(FVector(20.f, 10.f, 40.f));
+	HurtboxComponent->SetCollisionObjectType(ECC_GameTraceChannel4);
+	HurtboxComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	HurtboxComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
+	HurtboxComponent->SetCollisionResponseToChannel(ECC_GameTraceChannel3, ECR_Overlap);
+	HurtboxComponent->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
+	HurtboxComponent->SetGenerateOverlapEvents(false);
+	HurtboxComponent->ComponentTags.Add(TEXT("Hurtbox"));
+	
+	// Hitbox: Deals damage4
+	HitboxComponent = CreateDefaultSubobject<UBoxComponent>(TEXT("Hitbox"));
+			
+	// IMPORTANT: Attach to Sprite, not Root.
+	// This ensures the hitbox moves correctly when the sprite is flipped (Scale X = -1).
+	HitboxComponent->SetupAttachment(GetSprite()); 
+	HitboxComponent->SetBoxExtent(FVector(30.f, 30.f, 30.f));
+	// Set the hitbox to use our custom "PlayerHitbox" channel
+	HitboxComponent->SetCollisionObjectType(ECC_GameTraceChannel5);
+	// It should ignore everything by default...
+	HitboxComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
+	HitboxComponent->SetCollisionResponseToChannel(ECC_GameTraceChannel6, ECR_Overlap);
+	HitboxComponent->SetCollisionResponseToChannel(ECC_GameTraceChannel5, ECR_Overlap);
+	HitboxComponent->SetGenerateOverlapEvents(false);
+	HitboxComponent->ComponentTags.Add(TEXT("Hitbox"));
+	HitboxComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision); // Disabled by default! Enabled by Animation.
+	
+	HitboxComponent->OnComponentBeginOverlap.AddDynamic(this, &AEnemyCharacter::OnBoxBeginOverlap);
+	bHasHitPlayer = false;
+}
+
+// Called when the game starts or when spawned
+void AEnemyCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	
+	AttackManager = GetWorld()->GetSubsystem<UEnemyAttackManager>();
+	AIController = Cast<AEnemyAIController>(Controller);
+	
+	const FRotator CameraRotation = GetCameraRotation();
+	const float InitialYaw = CameraRotation.Yaw + AnimDirection;
+	LastFacingDirection = FRotator(0.0f, InitialYaw, 0.0f).Vector();
+}
+
+// Called every frame
+void AEnemyCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	UpdateAnimationDirection();
+	
+	if (GetSprite()->DoesSocketExist("Hitbox"))
+	{
+		// const FVector SocketLoc = GetSprite()->GetSocketLocation("Hitbox");
+		// const FVector HitboxLoc = HitboxComponent->GetComponentLocation();
+
+		// UE_LOG(LogTemp, Warning, TEXT("SocketLoc: %s | HitboxLoc: %s"),
+		// 	*SocketLoc.ToString(),
+		// 	*HitboxLoc.ToString());
+
+		// HitboxComponent->SetWorldLocation(SocketLoc);
+		HitboxComponent->UpdateOverlaps();
+		
+		// TArray<UPrimitiveComponent*> OverlappingComps;
+		// HitboxComponent->GetOverlappingComponents(OverlappingComps);
+		// UE_LOG(LogTemp, Warning, TEXT("Hitbox overlapping %d components"), OverlappingComps.Num());
+		// for (auto* Comp : OverlappingComps)
+		// {
+		// 	UE_LOG(LogTemp, Warning, TEXT("  - %s (Owner: %s)"), 
+		// 		*Comp->GetName(),
+		// 		*Comp->GetOwner()->GetName());
+		// }
+	}
+
+}
+
+void AEnemyCharacter::ActivateEnemy()
+{
+	// Reset Collisions
+	// SetActorEnableCollision(true);
+	
+	// Reset Movement
+	GetCharacterMovement()->GravityScale = 1.0f;
+	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	
+	// Restart Animations
+	
+	// Make Enemy Visible
+	SetActorHiddenInGame(false);
+	GetSprite()->SetVisibility(true);
+	
+	// AI Logic
+	if (AIController) AIController->ActivateEnemyBT(IsReset);
+	IsReset = false;
+}
+
+void AEnemyCharacter::DeactivateEnemy()
+{		
+	// // Stop Animations
+	//
+	// // Make Enemy not Visible
+	// SetActorHiddenInGame(true);
+	// GetSprite()->SetVisibility(false);
+	//
+	// // Health
+	// HealthComp->Reset();
+	//
+	// // Stop AI Logic
+	// if (AIController) AIController->DeactivateEnemyBT();
+	//
+	// IsReset = true;
+	
+	if (Type != EEnemyType::None && PickupClass)
+	{
+		TArray<AActor*> Masks;
+		UGameplayStatics::GetAllActorsOfClass(GetWorld(), PickupClass, Masks);
+		
+		if (Masks.Num() < 5)
+		{
+			AMaskPickup* PickMask = Cast<AMaskPickup>(GetWorld()->SpawnActor(PickupClass));
+            		
+            if (PickMask)
+            {
+            	PickMask->SetActorLocation(GetActorLocation());
+            	PickMask->MaskType = Type;
+            	PickMask->UpdateVisuals(RedRabbitMaskFlipbook, GreenBirdMaskFlipbook, BlueCatMaskFlipbook);
+            }
+		}
+		
+	}
+	
+	// SetActorLocation(SpawnLocation);
+}
+
+void AEnemyCharacter::OnBoxBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+                                        UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	// FIX: Ignore the Player's Hitbox (Weapon) to prevent taking contact damage when attacking the enemy.
+	// ECC_GameTraceChannel3 corresponds to the PlayerHitbox channel.
+	if (OtherComp && OtherComp->GetCollisionObjectType() != ECC_GameTraceChannel6) return;
+	
+	if (OtherActor && OtherActor->IsA<AGGJCharacter>())
+	{
+		
+		UE_LOG(LogTemp, Warning, TEXT("Enemy touched Player! Dealing %.1f Damage"), Damage);
+
+		UGameplayStatics::ApplyDamage(OtherActor, Damage, GetController(), this, UDamageType::StaticClass());
+		
+		// If the component that touched the player was the Weapon (Hitbox), mark as hit.
+		if (OverlappedComp == HitboxComponent)
+		{
+			bHasHitPlayer = true;
+		}
+	}
+}
+
+float AEnemyCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+	class AController* EventInstigator, AActor* DamageCauser)
+{
+	const float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
+
+	const bool bValidSource = DamageCauser && (DamageCauser->IsA<AGGJCharacter>() || DamageCauser->IsA<AMaskPickup>());
+
+	if (ActualDamage > 0.f && bValidSource)
+	{
+		HealthComp->ApplyDamage(ActualDamage);
+		OnEnemyHit();
+		if (AttackManager) AttackManager->ReleaseToken(this);
+		
+		if(HealthComp->IsActorDead())
+		{
+			OnDeath();
+			AGGJCharacter* Character = Cast<AGGJCharacter>(DamageCauser);
+			if (Character)
+			{
+				if (AGGJPlayerState* PS = Cast<AGGJPlayerState>(Character->GetPlayerState()))
+				{
+					PS->AddScore(ScorePoints);
+				}
+			}
+		}
+		else
+		{
+			if (DamageCauser)
+			{
+				const FVector KnockbackDir = (GetActorLocation() - DamageCauser->GetActorLocation()).GetSafeNormal2D();
+				LaunchCharacter(KnockbackDir * KnockBackStrenghth, true, true);
+			}
+		}
+	}
+	
+	return ActualDamage;
+}
+
+bool AEnemyCharacter::CanAttack()
+{
+	if (AttackManager)
+	{
+		return AttackManager->RequestAttack(this);
+	}
+	
+	return false;
+}
+
+void AEnemyCharacter::AttackFinished()
+{
+	if (AttackManager) AttackManager->ReleaseToken(this);
+	
+	IsAttacking = false;
+	HitboxComponent->SetGenerateOverlapEvents(false);
+	HitboxComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HitboxComponent->UpdateOverlaps();
+}
+
+void AEnemyCharacter::OnDeath()
+{
+	// Trigger Blueprint Event (Sound, VFX, Animation)
+	OnEnemyDied();
+
+	// Deactivate Movement
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->SetMovementMode(MOVE_None);
+		
+	// Deactivate Collisions
+	SetActorEnableCollision(false);
+	
+	// Check if has Pending Token
+	if (AttackManager) AttackManager->ReleaseToken(this);
+}
+
+void AEnemyCharacter::ActivateMeleeHitbox(FName SocketName, FVector Extent)
+{
+	// Safety Check: If socket doesn't exist on current sprite, warn and abort.
+	if (!GetSprite()->DoesSocketExist(SocketName))
+	{
+		return; // Avoid attaching to root by mistake
+	}
+
+	if (HitboxComponent)
+	{
+		HitboxComponent->AttachToComponent(GetSprite(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, SocketName);
+		HitboxComponent->SetBoxExtent(Extent);
+		HitboxComponent->SetGenerateOverlapEvents(true);
+		HitboxComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		HitboxComponent->UpdateOverlaps();
+		
+		// Reset hit tracker for this new swing
+		bHasHitPlayer = false;
+	}	
+}
+
+void AEnemyCharacter::DeactivateMeleeHitbox()
+{
+	HitboxComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	
+	// Trigger the Blueprint event with the result of the attack
+	OnAttackCompleted(bHasHitPlayer);
+}
+
+void AEnemyCharacter::UpdateAnimationDirection()
+{
+	const FVector Velocity = GetVelocity();
+
+	// Update LastFacingDirection from Velocity if moving significantly.
+	// If not moving, LastFacingDirection retains the last Input (updated in ApplyMovementInput).
+	if (Velocity.SizeSquared2D() > 1.0f)
+	{
+		LastFacingDirection = Velocity.GetSafeNormal2D();
+	}
+	
+	const FRotator CameraRotation = GetCameraRotation();
+	const FRotator TargetRotation = LastFacingDirection.ToOrientationRotator();
+
+	// Calculate the angle difference between the camera direction and velocity direction
+	// This allows the AnimBP to select the correct directional animation (Front, Back, Side)
+	const float DeltaYaw = FRotator::NormalizeAxis(TargetRotation.Yaw - CameraRotation.Yaw);
+
+	AnimDirection = DeltaYaw;
+
+	// Flip sprite based on movement direction relative to the camera.
+	// DeltaYaw is approx -90 for left (flip), +90 for right (normal).
+	if (DeltaYaw < -5.0f && DeltaYaw > -175.0f)
+	{
+		GetSprite()->SetRelativeScale3D(FVector(-1.0f, 1.0f, 1.3f));
+	}
+	else
+	{
+		GetSprite()->SetRelativeScale3D(FVector(1.0f, 1.0f, 1.3f));
+	}
+}
+
+FRotator AEnemyCharacter::GetCameraRotation() const
+{
+	if (APlayerController* PC = Cast<APlayerController>(UGameplayStatics::GetPlayerController(GetWorld(), 0)))
+	{
+		return PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraRotation() : FRotator(-45.f, -90.f, 0.f);
+	}
+	// Fallback if no controller yet
+	return FRotator(-45.f, -90.f, 0.f);
+}

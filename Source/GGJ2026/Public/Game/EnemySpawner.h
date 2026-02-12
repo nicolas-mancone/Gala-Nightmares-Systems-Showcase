@@ -1,0 +1,32 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Components/BoxComponent.h"
+#include "GameFramework/Actor.h"
+#include "EnemySpawner.generated.h"
+
+UCLASS()
+class GGJ2026_API AEnemySpawner : public AActor
+{
+	GENERATED_BODY()
+	
+public:	
+	UPROPERTY(EditAnywhere)
+	float BoxHalfSize;
+		
+	// Sets default values for this actor's properties
+	AEnemySpawner();
+
+protected:		
+	// Called when the game starts or when spawned
+	virtual void BeginPlay() override;
+
+public:	
+	FVector GetSpawnLocation();
+	
+	// Called every frame
+	virtual void Tick(float DeltaTime) override;
+
+};

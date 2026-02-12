@@ -1,0 +1,142 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AI/EnemyAIController.h"
+#include "AI/EnemyManager.h"
+#include "PaperZDCharacter.h"
+#include "Components/BoxComponent.h"
+#include "Components/HealthComponent.h"
+#include "Items/MaskPickup.h"
+#include "EnemyCharacter.generated.h"
+
+class UBoxComponent;
+
+UCLASS(Abstract)
+class GGJ2026_API AEnemyCharacter : public APaperZDCharacter
+{
+	GENERATED_BODY()
+
+public:
+	// Sets default values for this character's properties
+	AEnemyCharacter(const FObjectInitializer& ObjectInitializer);
+
+protected:	
+	UPROPERTY(EditAnywhere)
+	float Damage;
+	
+	/** Tracks if the current attack has hit the player. Resets on new attack. */
+	bool bHasHitPlayer = false;
+	
+	// UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	// UBoxComponent* Box;
+		
+	UPROPERTY()
+	UEnemyAttackManager* AttackManager;
+			
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UHealthComponent* HealthComp;
+	
+	UPROPERTY()
+	AEnemyAIController* AIController;
+	
+	// Called when the game starts or when spawned
+	virtual void BeginPlay() override;
+
+public:	
+	/** Component that detects incoming damage (The Body) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Combat, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* HurtboxComponent;
+
+	/** Component that deals damage (The Weapon) - Enabled only during attacks */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Combat, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* HitboxComponent;
+	
+	/** The last valid direction the character was moving or inputting towards (World Space) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GGJ|Debug", meta = (DisplayPriority = "0"))
+	FVector LastFacingDirection;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GGJ|Debug", meta = (DisplayPriority = "0"))
+	float AnimDirection = 180.0f;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EEnemyType Type;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool IsAttacking = false;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool IsReset = false;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float KnockBackStrenghth = 3000.0f;
+		
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector SpawnLocation;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	UClass* PickupClass;
+	
+	// --- Mask System (Visuals) ---
+
+	/** Flipbook asset for the Red Rabbit mask. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GGJ|Masks|Visuals", meta = (DisplayPriority = "0"))
+	class UPaperFlipbook* RedRabbitMaskFlipbook;
+
+	/** Flipbook asset for the Green Bird mask. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GGJ|Masks|Visuals", meta = (DisplayPriority = "0"))
+	class UPaperFlipbook* GreenBirdMaskFlipbook;
+
+	/** Flipbook asset for the Blue Cat mask. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GGJ|Masks|Visuals", meta = (DisplayPriority = "0"))
+	class UPaperFlipbook* BlueCatMaskFlipbook;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GGJ|Flow")
+	int32 ScorePoints = 10;
+	
+	UFUNCTION(BlueprintImplementableEvent, Category = "Combat")
+	void OnEnemyDied();
+	
+	/** Event called when the attack hitbox is deactivated. bHitPlayer is true if damage was dealt. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Combat")
+	void OnAttackCompleted(bool bHitPlayer);
+	
+	UFUNCTION(BlueprintImplementableEvent, Category = "Combat")
+	void OnEnemyHit();
+
+	// Called every frame
+	virtual void Tick(float DeltaTime) override;
+	
+	void ActivateEnemy();
+	
+	UFUNCTION(BlueprintCallable)
+	void DeactivateEnemy();
+		
+	UFUNCTION()
+	void OnBoxBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+	
+	UFUNCTION(BlueprintCallable)
+	bool CanAttack();
+	
+	// To call at the end of the Attack animation
+	UFUNCTION(BlueprintCallable)
+	void AttackFinished();
+		
+	// To call the moment it dies
+	UFUNCTION(BlueprintCallable)
+	void OnDeath();
+	
+	// Hitbox Functions
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void ActivateMeleeHitbox(FName SocketName, FVector Extent = FVector(30.f, 30.f, 30.f));
+	
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void DeactivateMeleeHitbox();
+	
+	void UpdateAnimationDirection();
+	
+	FRotator GetCameraRotation() const;
+};
