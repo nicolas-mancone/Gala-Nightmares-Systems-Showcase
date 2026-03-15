@@ -1,10 +1,10 @@
-# 🎭 Gala Nightmares - Gameplay Systems (Global Game Jam 2026)
+# 🎭 Gala nightmare - Gameplay Systems (Global Game Jam 2026)
 
 > **Theme:** "Mask"
 > **Context:** Developed in 48 hours at Roma Game Dev.
-> **Original Team Repo:** [GGJ2026 - Gala Nightmares](https://github.com/Patagatto/GGJ2026)
+> **Original Team Repo:** [GGJ2026 - Gala nightmare](https://github.com/Patagatto/GGJ2026)
 
-**Gala Nightmares** is a local multiplayer HD-2D beat 'em up made in **Unreal Engine 5.7**.
+**Gala nightmare** is a local multiplayer HD-2D beat 'em up made in **Unreal Engine 5.7**.
 This repository highlights the specific systems I worked on: the **Shared Camera** and the **Character Logic**.
 
 ---
